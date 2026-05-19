@@ -35,6 +35,7 @@ from legged_gym.utils.math import (
     quat_conjugate,
     quat_apply,
     quat_mul,
+    quat_rotate_inverse,
     quat_to_euler_xyz,
     quat_to_rot6d,
     quat_to_angle_axis,

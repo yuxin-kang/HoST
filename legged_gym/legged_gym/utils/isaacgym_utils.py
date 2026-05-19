@@ -3,11 +3,9 @@ import numpy as np
 import random
 import torch
 
-@torch.jit.script
 def copysign(a, b):
     # type: (float, Tensor) -> Tensor
-    a = torch.tensor(a, device=b.device, dtype=torch.float).repeat(b.shape[0])
-    return torch.abs(a) * torch.sign(b)
+    return abs(a) * torch.sign(b)
 def get_euler_xyz(q):
     qx, qy, qz, qw = 0, 1, 2, 3
     # roll (x-axis rotation)
