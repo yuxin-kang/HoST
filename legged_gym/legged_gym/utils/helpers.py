@@ -138,6 +138,10 @@ def get_args():
         {"name": "--num_envs", "type": int, "help": "Number of environments to create. Overrides config file if provided."},
         {"name": "--seed", "type": int, "help": "Random seed. Overrides config file if provided."},
         {"name": "--max_iterations", "type": int, "help": "Maximum number of training iterations. Overrides config file if provided."},
+        {"name": "--play_keep_train_curriculum", "action": "store_true", "default": False, "help": "For play.py, keep the training curriculum settings instead of forcing final-play settings."},
+        {"name": "--play_action_scale", "type": float, "help": "For play.py, override the control action scale."},
+        {"name": "--play_asset_debug", "action": "store_true", "default": False, "help": "For play.py, render the asset with zero actions and no checkpoint loading."},
+        {"name": "--play_steps", "type": int, "help": "For play.py, run a fixed number of simulation steps."},
     ]
     # parse arguments
     args = gymutil.parse_arguments(

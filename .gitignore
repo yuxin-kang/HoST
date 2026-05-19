@@ -173,5 +173,26 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-
+# Project-local runtime outputs
 logs/
+legged_gym/logs/
+runs/
+wandb/
+tensorboard/
+*.out
+*.err
+events.out.tfevents.*
+
+# Training checkpoints and exported policies
+*.pt
+*.pth
+*.onnx
+*.jit
+*.engine
+checkpoints/
+
+# External SDKs / local dependency drops. Install Isaac Gym locally instead of
+# committing NVIDIA preview packages and generated binary bindings.
+third_party/
+*.tar.gz
+*.zip

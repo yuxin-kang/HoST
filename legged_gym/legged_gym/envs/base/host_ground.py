@@ -284,8 +284,8 @@ class LeggedRobot(BaseTask):
         current_obs = torch.cat(( 
                                 self.base_ang_vel  * self.obs_scales.ang_vel,
                                 self.projected_gravity,
-                                self.dof_pos * self.obs_scales.dof_pos,
-                                self.dof_vel * self.obs_scales.dof_vel,
+                                self.dof_pos[:, self.controlled_dof_indices] * self.obs_scales.dof_pos,
+                                self.dof_vel[:, self.controlled_dof_indices] * self.obs_scales.dof_vel,
                                 self.actions,
                                 self.action_rescale + (torch.rand_like(self.action_rescale) - 0.5) * 0.05,
                                 ),dim=-1)
@@ -382,6 +382,18 @@ class LeggedRobot(BaseTask):
         Returns:
             [numpy.array]: Modified DOF properties
         """
+        dof_prop_names = props.dtype.names or ()
+        dof_armature = getattr(self.cfg.asset, "dof_armature", None)
+        dof_friction = getattr(self.cfg.asset, "dof_friction", None)
+        if dof_armature and "armature" in dof_prop_names:
+            for i, name in enumerate(self.dof_names):
+                if name in dof_armature:
+                    props["armature"][i] = dof_armature[name]
+        if dof_friction and "friction" in dof_prop_names:
+            for i, name in enumerate(self.dof_names):
+                if name in dof_friction:
+                    props["friction"][i] = dof_friction[name]
+
         if env_id==0:
             self.dof_pos_limits = torch.zeros(self.num_dof, 2, dtype=torch.float, device=self.device, requires_grad=False)
             self.dof_vel_limits = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
@@ -433,14 +445,21 @@ class LeggedRobot(BaseTask):
             [torch.Tensor]: Torques sent to the simulation
         """
         #pd controller
-        actions_scaled = actions * self.action_rescale
+        actions_scaled = actions * self.action_rescale * self.action_scale
+        full_actions_scaled = torch.zeros_like(self.dof_pos)
     
-        self.joint_pos_target = self.dof_pos + actions_scaled
         if self.cfg.domain_rand.delay:
             self.delay_buffer = torch.concat((self.delay_buffer[1:], actions_scaled.unsqueeze(0)), dim=0)
-            self.joint_pos_target = self.dof_pos + self.delay_buffer[self.delay_idx, torch.arange(len(self.delay_idx)), :]
+            delayed_actions = self.delay_buffer[self.delay_idx, torch.arange(len(self.delay_idx)), :]
+            full_actions_scaled[:, self.controlled_dof_indices] = delayed_actions
         else:
-            self.joint_pos_target = self.dof_pos + actions_scaled
+            full_actions_scaled[:, self.controlled_dof_indices] = actions_scaled
+
+        self.joint_pos_target = self.dof_pos + full_actions_scaled
+        if self.uncontrolled_dof_indices.numel() > 0:
+            self.joint_pos_target[:, self.uncontrolled_dof_indices] = self.default_dof_pos[
+                :, self.uncontrolled_dof_indices
+            ]
 
         control_type = self.cfg.control.control_type
         if control_type=="P":
@@ -471,7 +490,7 @@ class LeggedRobot(BaseTask):
             init_dos_pos += torch_rand_float(self.cfg.domain_rand.initial_joint_pos_offset[0], self.cfg.domain_rand.initial_joint_pos_offset[1], (len(env_ids), self.num_dof), device=self.device)
             self.dof_pos[env_ids] = torch.clip(init_dos_pos, dof_lower, dof_upper)
         else:
-            self.dof_pos[env_ids] = self.default_dof_pos * torch_rand_float(0.5, 1.5, (len(env_ids), self.num_dof), device=self.device) + int(self.cfg.domain_rand.random_pose) * torch_rand_float(-1, 1, (len(env_ids), self.num_dof), device=self.device) 
+            self.dof_pos[env_ids] = torch.clip(self.default_dof_pos, dof_lower, dof_upper)
             self.dof_vel[env_ids] = 0.
 
         self.dof_vel[env_ids] = 0.
@@ -531,6 +550,37 @@ class LeggedRobot(BaseTask):
 
         return noise_vec
 
+    def _init_action_scales(self):
+        action_scale_cfg = self.cfg.control.action_scale
+        action_rescale_cfg = getattr(self.cfg.control, "action_rescale", None)
+
+        if isinstance(action_scale_cfg, dict):
+            controlled_joint_names = getattr(self.cfg.asset, "controlled_joint_names", None)
+            if controlled_joint_names is None:
+                controlled_joint_names = [self.dof_names[index] for index in self.controlled_dof_indices.tolist()]
+            missing_names = [name for name in controlled_joint_names if name not in action_scale_cfg]
+            if missing_names:
+                raise ValueError(f"Action scale missing controlled joints: {missing_names}")
+            action_scale_values = [float(action_scale_cfg[name]) for name in controlled_joint_names]
+            action_rescale_value = 1.0 if action_rescale_cfg is None else float(action_rescale_cfg)
+        elif isinstance(action_scale_cfg, (list, tuple)):
+            if len(action_scale_cfg) != self.num_actions:
+                raise ValueError(
+                    f"Action scale list length must match num_actions: {len(action_scale_cfg)} != {self.num_actions}"
+                )
+            action_scale_values = [float(value) for value in action_scale_cfg]
+            action_rescale_value = 1.0 if action_rescale_cfg is None else float(action_rescale_cfg)
+        else:
+            action_scale_values = [1.0] * self.num_actions
+            action_rescale_value = float(action_scale_cfg)
+
+        action_scale = torch.tensor(action_scale_values, dtype=torch.float, device=self.device, requires_grad=False)
+        action_scale = action_scale.unsqueeze(0).repeat(self.num_envs, 1)
+        action_rescale = action_rescale_value * torch.ones(
+            self.num_envs, dtype=torch.float, device=self.device, requires_grad=False
+        ).unsqueeze(1)
+        return action_scale, action_rescale
+
     #----------------------------------------
     def _init_buffers(self):
         """ Initialize torch tensors which will contain simulation states and processed quantities
@@ -566,9 +616,9 @@ class LeggedRobot(BaseTask):
         self.noise_scale_vec = self._get_noise_scale_vec(self.cfg)
         self.gravity_vec = to_torch(get_axis_params(-1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
         self.forward_vec = to_torch([1., 0., 0.], device=self.device).repeat((self.num_envs, 1))
-        self.torques = torch.zeros(self.num_envs, self.num_real_dofs, dtype=torch.float, device=self.device, requires_grad=False)
-        self.p_gains = torch.zeros(self.num_real_dofs, dtype=torch.float, device=self.device, requires_grad=False)
-        self.d_gains = torch.zeros(self.num_real_dofs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.torques = torch.zeros(self.num_envs, self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
+        self.p_gains = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
+        self.d_gains = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
         self.actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
@@ -587,7 +637,7 @@ class LeggedRobot(BaseTask):
         self.max_headheight = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False).unsqueeze(1)
         self.feet_ori = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False).unsqueeze(1)
         self.force = self.cfg.curriculum.force * torch.ones(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False).unsqueeze(1)
-        self.action_rescale = self.cfg.control.action_scale * torch.ones(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False).unsqueeze(1)
+        self.action_scale, self.action_rescale = self._init_action_scales()
         self.delay_buffer = torch.zeros(self.cfg.domain_rand.max_delay_timesteps, self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         
         # joint positions offsets and PD gains
@@ -728,6 +778,28 @@ class LeggedRobot(BaseTask):
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
         self.num_bodies = len(body_names)
         self.num_dofs = len(self.dof_names)
+        controlled_joint_names = getattr(self.cfg.asset, "controlled_joint_names", None)
+        if controlled_joint_names:
+            missing_joint_names = [name for name in controlled_joint_names if name not in self.dof_names]
+            duplicate_joint_names = sorted(
+                {name for name in controlled_joint_names if controlled_joint_names.count(name) > 1}
+            )
+            if missing_joint_names:
+                raise ValueError(f"Controlled joints missing from asset: {missing_joint_names}")
+            if duplicate_joint_names:
+                raise ValueError(f"Controlled joints listed more than once: {duplicate_joint_names}")
+            controlled_dof_indices = [self.dof_names.index(name) for name in controlled_joint_names]
+        else:
+            controlled_dof_indices = list(range(self.num_dofs))
+        if len(controlled_dof_indices) != self.num_actions or len(controlled_dof_indices) != self.num_real_dofs:
+            raise ValueError(
+                "Controlled DOF count must match policy action/observation config: "
+                f"controlled={len(controlled_dof_indices)}, actions={self.num_actions}, "
+                f"num_dofs={self.num_real_dofs}"
+            )
+        uncontrolled_dof_indices = [i for i in range(self.num_dofs) if i not in controlled_dof_indices]
+        self.controlled_dof_indices = torch.tensor(controlled_dof_indices, dtype=torch.long, device=self.device)
+        self.uncontrolled_dof_indices = torch.tensor(uncontrolled_dof_indices, dtype=torch.long, device=self.device)
         feet_names = [s for s in body_names if self.cfg.asset.foot_name in s and 'auxiliary' not in s]
         penalized_contact_names = []
         # import ipdb; ipdb.set_trace()
@@ -743,7 +815,14 @@ class LeggedRobot(BaseTask):
         start_pose.p = gymapi.Vec3(*self.base_init_state[:3])
 
         self.default_rigid_body_mass = torch.zeros(self.num_bodies, dtype=torch.float, device=self.device, requires_grad=False)
-        self.torso_link_index = body_names.index("torso_link")
+        mass_link_name = getattr(self.cfg.asset, "mass_link_name", self.cfg.asset.base_name)
+        if mass_link_name in body_names:
+            self.torso_link_index = body_names.index(mass_link_name)
+        else:
+            mass_link_matches = [name for name in body_names if mass_link_name in name]
+            if len(mass_link_matches) != 1:
+                raise ValueError(f"Expected one mass link matching {mass_link_name!r}, found {mass_link_matches}")
+            self.torso_link_index = body_names.index(mass_link_matches[0])
 
         self._get_env_origins()
         env_lower = gymapi.Vec3(0., 0., 0.)
@@ -762,7 +841,7 @@ class LeggedRobot(BaseTask):
         for i in range(self.num_envs):
             # create env instance
             env_handle = self.gym.create_env(self.sim, env_lower, env_upper, int(np.sqrt(self.num_envs)))
-            pos = self.env_origins[i].clone()
+            pos = self.env_origins[i].clone() + self.base_init_state[:3]
             pos[:2] += torch_rand_float(-1., 1., (2,1), device=self.device).squeeze(1)
             start_pose.p = gymapi.Vec3(*pos)
                 
@@ -1063,7 +1142,13 @@ class LeggedRobot(BaseTask):
     #-----------------------------regularization rewards-----------------------------
     def _reward_dof_acc(self):
         # Penalize dof accelerations
-        return torch.sum(torch.square((self.last_dof_vel - self.dof_vel) / self.dt), dim=1)
+        return torch.sum(
+            torch.square(
+                (self.last_dof_vel[:, self.controlled_dof_indices] - self.dof_vel[:, self.controlled_dof_indices])
+                / self.dt
+            ),
+            dim=1,
+        )
 
     def _reward_action_rate(self):
         # Penalize changes in actions
@@ -1075,32 +1160,54 @@ class LeggedRobot(BaseTask):
 
     def _reward_torques(self):
         # Penalize torques
-        return torch.sum(torch.square(self.torques), dim=1)
+        return torch.sum(torch.square(self.torques[:, self.controlled_dof_indices]), dim=1)
 
     def _reward_joint_power(self):
         #Penalize high power
-        return torch.sum(torch.abs(self.dof_vel) * torch.abs(self.torques), dim=1) 
+        return torch.sum(
+            torch.abs(self.dof_vel[:, self.controlled_dof_indices])
+            * torch.abs(self.torques[:, self.controlled_dof_indices]),
+            dim=1,
+        )
 
     def _reward_dof_vel(self):
         # Penalize dof velocities
-        return torch.sum(torch.square(self.dof_vel), dim=1)
+        return torch.sum(torch.square(self.dof_vel[:, self.controlled_dof_indices]), dim=1)
 
     def _reward_joint_tracking_error(self):
-        return torch.sum(torch.square(self.joint_pos_target - self.dof_pos), dim=-1)
+        return torch.sum(
+            torch.square(
+                self.joint_pos_target[:, self.controlled_dof_indices]
+                - self.dof_pos[:, self.controlled_dof_indices]
+            ),
+            dim=-1,
+        )
 
     def _reward_dof_pos_limits(self):
         # Penalize dof positions too close to the limit
-        out_of_limits = -(self.dof_pos - self.dof_pos_limits[:, 0]).clip(max=0.) # lower limit
-        out_of_limits += (self.dof_pos - self.dof_pos_limits[:, 1]).clip(min=0.)
+        dof_pos = self.dof_pos[:, self.controlled_dof_indices]
+        dof_limits = self.dof_pos_limits[self.controlled_dof_indices]
+        out_of_limits = -(dof_pos - dof_limits[:, 0]).clip(max=0.) # lower limit
+        out_of_limits += (dof_pos - dof_limits[:, 1]).clip(min=0.)
         return torch.sum(out_of_limits, dim=1)
 
     def _reward_dof_vel_limits(self):
         # Penalize dof velocities too close to the limit
-        return torch.sum((torch.abs(self.dof_vel) - self.dof_vel_limits*self.cfg.rewards.soft_dof_vel_limit).clip(min=0., max=1.), dim=1)
+        dof_vel = self.dof_vel[:, self.controlled_dof_indices]
+        dof_vel_limits = self.dof_vel_limits[self.controlled_dof_indices]
+        return torch.sum(
+            (torch.abs(dof_vel) - dof_vel_limits * self.cfg.rewards.soft_dof_vel_limit).clip(min=0., max=1.),
+            dim=1,
+        )
 
     def _reward_torque_limits(self):
         # penalize torques too close to the limit
-        return torch.sum((torch.abs(self.torques) - self.torque_limits*self.cfg.rewards.soft_torque_limit).clip(min=0.), dim=1)
+        torques = self.torques[:, self.controlled_dof_indices]
+        torque_limits = self.torque_limits[self.controlled_dof_indices]
+        return torch.sum(
+            (torch.abs(torques) - torque_limits * self.cfg.rewards.soft_torque_limit).clip(min=0.),
+            dim=1,
+        )
 
 
     #-----------------------------style rewards-----------------------------
