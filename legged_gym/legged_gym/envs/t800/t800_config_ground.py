@@ -1,10 +1,11 @@
-from legged_gym.envs.g1.g1_config_ground import G1Cfg, G1CfgPPO
+from legged_gym.envs.h1.h1_config_ground import H1Cfg, H1CfgPPO
 
 
 T800_SOURCE_URDF = "{LEGGED_GYM_ROOT_DIR}/resources/robots/t800/urdf/serial_t800.urdf"
 T800_URDF = "{LEGGED_GYM_ROOT_DIR}/resources/robots/t800_stl/urdf/serial_t800_stl.urdf"
-T800_STANDING_ROOT_HEIGHT = 1.04
-T800_STANDING_HEAD_HEIGHT = 1.55
+T800_GETUP_ROOT_ROT = [0.0, -1.0, 0.0, 1.0]
+T800_STANDING_ROOT_HEIGHT = 1.037
+T800_STANDING_HEAD_HEIGHT = 1.567
 
 T800_DFS_JOINT_NAMES = [
     "J00_HIP_PITCH_L",
@@ -34,7 +35,7 @@ T800_DFS_JOINT_NAMES = [
     "J28_HEAD_YAW",
 ]
 
-T800_ACTION_JOINT_NAMES = T800_DFS_JOINT_NAMES
+T800_ACTION_JOINT_NAMES = T800_DFS_JOINT_NAMES[:23]
 T800_FIXED_JOINT_NAMES = []
 T800_CONTROLLED_JOINT_NAMES = T800_ACTION_JOINT_NAMES
 T800_HEAD_JOINT_NAMES = T800_DFS_JOINT_NAMES[23:]
@@ -63,8 +64,6 @@ T800_ACTION_SCALE_BY_JOINT = {
     "J22_SHOULDER_YAW_R": 0.05,
     "J23_ELBOW_PITCH_R": 0.2,
     "J24_ELBOW_YAW_R": 0.05,
-    "J27_HEAD_PITCH": 0.2,
-    "J28_HEAD_YAW": 0.2,
 }
 
 T800_ARMATURE_BY_JOINT = {
@@ -160,56 +159,64 @@ T800_TARGET_JOINT_ANGLES = {
 }
 
 
-class T800Cfg(G1Cfg):
-    class init_state(G1Cfg.init_state):
-        pos = [0.0, 0.0, T800_STANDING_ROOT_HEIGHT]
-        rot = [0.0, 0.0, 0.0, 1.0]
+class T800Cfg(H1Cfg):
+    class init_state(H1Cfg.init_state):
+        pos = [0.0, 0.0, 0.5]
+        rot = T800_GETUP_ROOT_ROT
         target_joint_angles = T800_TARGET_JOINT_ANGLES
         default_joint_angles = T800_DEFAULT_JOINT_ANGLES
 
-    class env(G1Cfg.env):
-        num_one_step_observations = 82
-        num_actions = 25
-        num_dofs = 25
+    class env(H1Cfg.env):
+        num_one_step_observations = 76
+        num_actions = 23
+        num_dofs = 23
         num_actor_history = 6
         num_observations = num_actor_history * num_one_step_observations
 
-    class control(G1Cfg.control):
+    class control(H1Cfg.control):
         action_scale = T800_ACTION_SCALE_BY_JOINT
-        action_rescale = 1.0
         stiffness = {
-            "HIP_PITCH": 180,
-            "HIP_ROLL": 100,
-            "HIP_YAW": 100,
-            "KNEE_PITCH": 180,
-            "ANKLE": 40,
-            "TORSO_YAW": 100,
-            "SHOULDER": 40,
-            "ELBOW_PITCH": 40,
-            "ELBOW_YAW": 50,
-            "HEAD": 50,
+            "HIP_PITCH": 450,
+            "HIP_ROLL": 420,
+            "HIP_YAW": 360,
+            "KNEE_PITCH": 450,
+            "ANKLE": 160,
+            "TORSO_YAW": 260,
+            "SHOULDER": 220,
+            "ELBOW_PITCH": 180,
+            "ELBOW_YAW": 140,
+            "HEAD": 80,
         }
         damping = {
-            "HIP_PITCH": 5,
-            "HIP_ROLL": 3,
-            "HIP_YAW": 3,
-            "KNEE_PITCH": 5,
-            "ANKLE": 0.3,
-            "TORSO_YAW": 3,
-            "SHOULDER": 0.3,
-            "ELBOW_PITCH": 0.3,
-            "ELBOW_YAW": 0.3,
-            "HEAD": 0.3,
+            "HIP_PITCH": 7,
+            "HIP_ROLL": 6,
+            "HIP_YAW": 5,
+            "KNEE_PITCH": 7,
+            "ANKLE": 3,
+            "TORSO_YAW": 5,
+            "SHOULDER": 3,
+            "ELBOW_PITCH": 3,
+            "ELBOW_YAW": 2,
+            "HEAD": 1,
         }
 
-    class rewards(G1Cfg.rewards):
+    class rewards(H1Cfg.rewards):
         base_height_target = T800_STANDING_ROOT_HEIGHT
         target_head_height = T800_STANDING_HEAD_HEIGHT
-        target_base_height_phase1 = 0.85
-        target_base_height_phase2 = 0.90
-        target_base_height_phase3 = 0.98
 
-    class asset(G1Cfg.asset):
+    class curriculum(H1Cfg.curriculum):
+        pull_force = True
+        force = 1000
+        threshold_height = 1.42
+        dof_vel_limit = 300
+        base_vel_limit = 20
+        no_orientation = True
+
+    class constraints(H1Cfg.constraints):
+        class scales(H1Cfg.constraints.scales):
+            style_collision = -1.0
+
+    class asset(H1Cfg.asset):
         file = T800_URDF
         name = "t800"
         left_foot_name = "LINK_FOOT_L"
@@ -297,12 +304,14 @@ class T800Cfg(G1Cfg):
         dof_armature = T800_ARMATURE_BY_JOINT
         dof_friction = T800_DOF_FRICTION_BY_JOINT
 
-    class sim(G1Cfg.sim):
-        class physx(G1Cfg.sim.physx):
+    class sim(H1Cfg.sim):
+        class physx(H1Cfg.sim.physx):
             num_velocity_iterations = 4
 
 
-class T800CfgPPO(G1CfgPPO):
-    class runner(G1CfgPPO.runner):
+class T800CfgPPO(H1CfgPPO):
+    class runner(H1CfgPPO.runner):
         run_name = ""
         experiment_name = "t800_host_ground"
+        save_interval = 1000
+        max_iterations = 30000 # number of policy updates

@@ -44,6 +44,19 @@ from legged_gym.utils.math import (
 )
 
 
+def _select_ankle_marker_names(body_names, target_names):
+    matched_names = []
+    auxiliary_names = []
+    for target_name in target_names:
+        for source_name in body_names:
+            if target_name in source_name and 'keyframe' not in source_name:
+                if 'auxiliary' in source_name:
+                    auxiliary_names.append(source_name)
+                else:
+                    matched_names.append(source_name)
+    return auxiliary_names if auxiliary_names else matched_names
+
+
 class LeggedRobot(BaseTask):
     def __init__(self, cfg: LeggedRobotCfg, sim_params, physics_engine, sim_device, headless):
         """ Parses the provided config file,
@@ -235,6 +248,11 @@ class LeggedRobot(BaseTask):
             self.Kd_factors[env_ids] = torch_rand_float(self.cfg.domain_rand.kd_range[0], self.cfg.domain_rand.kd_range[1], (len(env_ids), self.num_dofs), device=self.device)
         if self.cfg.domain_rand.randomize_actuation_offset:
             self.actuation_offset[env_ids] = torch_rand_float(self.cfg.domain_rand.actuation_offset_range[0], self.cfg.domain_rand.actuation_offset_range[1], (len(env_ids), self.num_dof), device=self.device) * self.torque_limits.unsqueeze(0)
+            if self.uncontrolled_dof_indices.numel() > 0:
+                self.actuation_offset[
+                    env_ids.unsqueeze(1),
+                    self.uncontrolled_dof_indices.unsqueeze(0),
+                ] = 0.
         if self.cfg.domain_rand.randomize_motor_strength:
             self.motor_strength[env_ids] = torch_rand_float(self.cfg.domain_rand.motor_strength_range[0], self.cfg.domain_rand.motor_strength_range[1], (len(env_ids), self.num_dof), device=self.device)
         if self.cfg.domain_rand.delay:
@@ -494,6 +512,12 @@ class LeggedRobot(BaseTask):
             self.dof_pos[env_ids] = torch.clip(self.default_dof_pos, dof_lower, dof_upper)
             self.dof_vel[env_ids] = 0.
 
+        if self.uncontrolled_dof_indices.numel() > 0:
+            self.dof_pos[
+                env_ids.unsqueeze(1),
+                self.uncontrolled_dof_indices.unsqueeze(0),
+            ] = self.default_dof_pos[:, self.uncontrolled_dof_indices]
+
         self.dof_vel[env_ids] = 0.
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
@@ -675,6 +699,8 @@ class LeggedRobot(BaseTask):
             self.Kd_factors = torch_rand_float(self.cfg.domain_rand.kd_range[0], self.cfg.domain_rand.kd_range[1], (self.num_envs, self.num_dofs), device=self.device)
         if self.cfg.domain_rand.randomize_actuation_offset:
             self.actuation_offset = torch_rand_float(self.cfg.domain_rand.actuation_offset_range[0], self.cfg.domain_rand.actuation_offset_range[1], (self.num_envs, self.num_dof), device=self.device) * self.torque_limits.unsqueeze(0)
+            if self.uncontrolled_dof_indices.numel() > 0:
+                self.actuation_offset[:, self.uncontrolled_dof_indices] = 0.
         if self.cfg.domain_rand.randomize_motor_strength:
             self.motor_strength = torch_rand_float(self.cfg.domain_rand.motor_strength_range[0], self.cfg.domain_rand.motor_strength_range[1], (self.num_envs, self.num_dofs), device=self.device)
         if self.cfg.domain_rand.randomize_payload_mass:
@@ -1036,21 +1062,13 @@ class LeggedRobot(BaseTask):
         for i, name in enumerate(right_lower_body_names):
             self.right_lower_body_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], name)
 
-        left_ankle_names = []
-        for target_name in self.cfg.asset.left_ankle_names:
-            for source_name in body_names:
-                if target_name in source_name and 'keyframe' not in source_name:
-                    left_ankle_names.append(source_name)
+        left_ankle_names = _select_ankle_marker_names(body_names, self.cfg.asset.left_ankle_names)
         self.left_ankle_indices = torch.zeros(len(left_ankle_names), dtype=torch.long, device=self.device)
         self.left_ankle_names = left_ankle_names
         for i, name in enumerate(left_ankle_names):
             self.left_ankle_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], name)
 
-        right_ankle_names = []
-        for target_name in self.cfg.asset.right_ankle_names:
-            for source_name in body_names:
-                if target_name in source_name and 'keyframe' not in source_name:
-                    right_ankle_names.append(source_name)
+        right_ankle_names = _select_ankle_marker_names(body_names, self.cfg.asset.right_ankle_names)
         self.right_ankle_indices = torch.zeros(len(right_ankle_names), dtype=torch.long, device=self.device)
         self.right_ankle_names = right_ankle_names
         for i, name in enumerate(right_ankle_names):
@@ -1154,6 +1172,12 @@ class LeggedRobot(BaseTask):
     def _reward_action_rate(self):
         # Penalize changes in actions
         return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
+
+    def _reward_collision(self):
+        return torch.sum(
+            1. * (torch.norm(self.contact_forces[:, self.penalised_contact_indices, :], dim=-1) > 0.1),
+            dim=1,
+        )
 
     def _reward_smoothness(self):
         # second order smoothness

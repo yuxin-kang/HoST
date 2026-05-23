@@ -170,6 +170,58 @@
     <axis xyz="1.0 0.0 0.0" />
     <limit lower="-0.3491" upper="0.1745" effort="160" velocity="33.51" />
   </joint>
+  <link name="auxiliary_LINK_ANKLE_ROLL_L_link1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </visual>
+  </link>
+  <joint name="auxiliary_LINK_ANKLE_ROLL_L_joint1" type="fixed" dont_collapse="true">
+    <origin xyz="0.15 0.05 -0.06453" rpy="0 0 0" />
+    <parent link="LINK_ANKLE_ROLL_L" />
+    <child link="auxiliary_LINK_ANKLE_ROLL_L_link1" />
+  </joint>
+  <link name="auxiliary_LINK_ANKLE_ROLL_L_link2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </visual>
+  </link>
+  <joint name="auxiliary_LINK_ANKLE_ROLL_L_joint2" type="fixed" dont_collapse="true">
+    <origin xyz="0.15 -0.05 -0.06453" rpy="0 0 0" />
+    <parent link="LINK_ANKLE_ROLL_L" />
+    <child link="auxiliary_LINK_ANKLE_ROLL_L_link2" />
+  </joint>
+  <link name="auxiliary_LINK_ANKLE_ROLL_L_link3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </visual>
+  </link>
+  <joint name="auxiliary_LINK_ANKLE_ROLL_L_joint3" type="fixed" dont_collapse="true">
+    <origin xyz="-0.11 0.05 -0.06453" rpy="0 0 0" />
+    <parent link="LINK_ANKLE_ROLL_L" />
+    <child link="auxiliary_LINK_ANKLE_ROLL_L_link3" />
+  </joint>
+  <link name="auxiliary_LINK_ANKLE_ROLL_L_link4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </visual>
+  </link>
+  <joint name="auxiliary_LINK_ANKLE_ROLL_L_joint4" type="fixed" dont_collapse="true">
+    <origin xyz="-0.11 -0.05 -0.06453" rpy="0 0 0" />
+    <parent link="LINK_ANKLE_ROLL_L" />
+    <child link="auxiliary_LINK_ANKLE_ROLL_L_link4" />
+  </joint>
   <link name="LINK_FOOT_L">
     <inertial>
       <mass value="1e-3" />
@@ -340,6 +392,58 @@
     <child link="LINK_ANKLE_ROLL_R" />
     <axis xyz="1.0 0.0 0.0" />
     <limit lower="-0.1745" upper="0.3491" effort="160" velocity="33.51" />
+  </joint>
+  <link name="auxiliary_LINK_ANKLE_ROLL_R_link1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </visual>
+  </link>
+  <joint name="auxiliary_LINK_ANKLE_ROLL_R_joint1" type="fixed" dont_collapse="true">
+    <origin xyz="0.15 0.05 -0.06453" rpy="0 0 0" />
+    <parent link="LINK_ANKLE_ROLL_R" />
+    <child link="auxiliary_LINK_ANKLE_ROLL_R_link1" />
+  </joint>
+  <link name="auxiliary_LINK_ANKLE_ROLL_R_link2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </visual>
+  </link>
+  <joint name="auxiliary_LINK_ANKLE_ROLL_R_joint2" type="fixed" dont_collapse="true">
+    <origin xyz="0.15 -0.05 -0.06453" rpy="0 0 0" />
+    <parent link="LINK_ANKLE_ROLL_R" />
+    <child link="auxiliary_LINK_ANKLE_ROLL_R_link2" />
+  </joint>
+  <link name="auxiliary_LINK_ANKLE_ROLL_R_link3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </visual>
+  </link>
+  <joint name="auxiliary_LINK_ANKLE_ROLL_R_joint3" type="fixed" dont_collapse="true">
+    <origin xyz="-0.11 0.05 -0.06453" rpy="0 0 0" />
+    <parent link="LINK_ANKLE_ROLL_R" />
+    <child link="auxiliary_LINK_ANKLE_ROLL_R_link3" />
+  </joint>
+  <link name="auxiliary_LINK_ANKLE_ROLL_R_link4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </visual>
+  </link>
+  <joint name="auxiliary_LINK_ANKLE_ROLL_R_joint4" type="fixed" dont_collapse="true">
+    <origin xyz="-0.11 -0.05 -0.06453" rpy="0 0 0" />
+    <parent link="LINK_ANKLE_ROLL_R" />
+    <child link="auxiliary_LINK_ANKLE_ROLL_R_link4" />
   </joint>
   <link name="LINK_FOOT_R">
     <inertial>
