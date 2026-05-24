@@ -152,8 +152,14 @@ T800_DEFAULT_JOINT_ANGLES = {
 
 T800_TARGET_JOINT_ANGLES = {
     **T800_DEFAULT_JOINT_ANGLES,
+    "J00_HIP_PITCH_L": 0.30,
+    "J04_ANKLE_PITCH_L": -0.30,
+    "J06_HIP_PITCH_R": -0.30,
+    "J10_ANKLE_PITCH_R": 0.30,
+    "J13_SHOULDER_PITCH_L": -0.60,
     "J14_SHOULDER_ROLL_L": 0.3,
     "J16_ELBOW_PITCH_L": 0.0,
+    "J20_SHOULDER_PITCH_R": 0.60,
     "J21_SHOULDER_ROLL_R": -0.3,
     "J23_ELBOW_PITCH_R": 0.0,
 }
@@ -176,28 +182,28 @@ class T800Cfg(H1Cfg):
     class control(H1Cfg.control):
         action_scale = T800_ACTION_SCALE_BY_JOINT
         stiffness = {
-            "HIP_PITCH": 450,
-            "HIP_ROLL": 420,
-            "HIP_YAW": 360,
-            "KNEE_PITCH": 450,
-            "ANKLE": 160,
-            "TORSO_YAW": 260,
-            "SHOULDER": 220,
-            "ELBOW_PITCH": 180,
-            "ELBOW_YAW": 140,
-            "HEAD": 80,
+            "HIP_PITCH": 810,
+            "HIP_ROLL": 756,
+            "HIP_YAW": 648,
+            "KNEE_PITCH": 810,
+            "ANKLE": 288,
+            "TORSO_YAW": 468,
+            "SHOULDER": 396,
+            "ELBOW_PITCH": 324,
+            "ELBOW_YAW": 252,
+            "HEAD": 144,
         }
         damping = {
-            "HIP_PITCH": 7,
-            "HIP_ROLL": 6,
-            "HIP_YAW": 5,
-            "KNEE_PITCH": 7,
-            "ANKLE": 3,
-            "TORSO_YAW": 5,
-            "SHOULDER": 3,
-            "ELBOW_PITCH": 3,
-            "ELBOW_YAW": 2,
-            "HEAD": 1,
+            "HIP_PITCH": 9.4,
+            "HIP_ROLL": 8.0,
+            "HIP_YAW": 6.7,
+            "KNEE_PITCH": 9.4,
+            "ANKLE": 4.0,
+            "TORSO_YAW": 6.7,
+            "SHOULDER": 4.0,
+            "ELBOW_PITCH": 4.0,
+            "ELBOW_YAW": 2.7,
+            "HEAD": 1.3,
         }
 
     class rewards(H1Cfg.rewards):
@@ -206,14 +212,23 @@ class T800Cfg(H1Cfg):
 
     class curriculum(H1Cfg.curriculum):
         pull_force = True
-        force = 1000
+        force = 500
         threshold_height = 1.42
+        action_rescale_min = 0.6
         dof_vel_limit = 300
         base_vel_limit = 20
         no_orientation = True
 
     class constraints(H1Cfg.constraints):
         class scales(H1Cfg.constraints.scales):
+            regu_dof_acc = -3e-7
+            regu_action_rate = -0.01
+            regu_smoothness = -0.01
+            regu_joint_power = -1.5e-5
+            regu_dof_vel = -2e-3
+            regu_dof_pos_limits = -100.0
+
+            style_feet_distance = -5.0
             style_collision = -1.0
 
     class asset(H1Cfg.asset):

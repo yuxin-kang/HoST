@@ -15,6 +15,41 @@ from collections import defaultdict
 from multiprocessing import Process, Value
 
 
+def log_getup_metrics(env, actions, step):
+    env_id = 0
+    root_z = env.root_states[env_id, 2].item()
+    head_z = env.rigid_body_states[env_id, env.head_indices, 2].mean().item()
+    feet_z = env.rigid_body_states[env_id, env.feet_indices, 2].mean().item()
+    head_rel_feet = head_z - feet_z
+    left_foot = env.rigid_body_states[env_id, env.left_foot_indices, :3].squeeze(0)
+    right_foot = env.rigid_body_states[env_id, env.right_foot_indices, :3].squeeze(0)
+    orientation_score = (-env.projected_gravity[env_id, 2]).item()
+    phase1 = root_z > env.cfg.rewards.target_base_height_phase1
+    phase2 = root_z > env.cfg.rewards.target_base_height_phase2
+    phase3 = root_z > env.cfg.rewards.target_base_height_phase3
+    action_abs_max = actions[env_id].abs().max().item()
+    action_abs_mean = actions[env_id].abs().mean().item()
+    pull_force_enabled = bool(env.cfg.curriculum.pull_force)
+    cfg_force = float(env.cfg.curriculum.force)
+    runtime_force = float(env.force[env_id].item()) if hasattr(env, "force") else 0.0
+    force_active = int(env.real_episode_length_buf[env_id].item() > env.unactuated_time)
+    print(
+        "[getup] "
+        f"step={step:05d} "
+        f"root_z={root_z:.3f} "
+        f"head_rel_feet={head_rel_feet:.3f} "
+        f"orientation={orientation_score:.3f} "
+        f"phase=({int(phase1)},{int(phase2)},{int(phase3)}) "
+        f"pull_force=({int(pull_force_enabled)},cfg={cfg_force:.1f},runtime={runtime_force:.1f},active={force_active}) "
+        f"targets=(root>{env.cfg.rewards.target_base_height_phase3:.2f}, "
+        f"head>{env.cfg.rewards.target_head_height:.2f}) "
+        f"left_foot=({left_foot[0].item():.2f},{left_foot[1].item():.2f},{left_foot[2].item():.2f}) "
+        f"right_foot=({right_foot[0].item():.2f},{right_foot[1].item():.2f},{right_foot[2].item():.2f}) "
+        f"action_abs=(mean={action_abs_mean:.3f},max={action_abs_max:.3f})",
+        flush=True,
+    )
+
+
 def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 100)
@@ -76,21 +111,25 @@ def play(args):
     obs = env.get_observations()
     debug_initial_dof_pos = env.dof_pos.clone() if args.play_asset_debug else None
     debug_max_abs_dof_delta = 0.0
+    policy_device = torch.device(env.device)
 
     if args.play_asset_debug:
         policy = lambda obs: torch.zeros(env.num_envs, env.num_actions, device=env.device)
     else:
         train_cfg.runner.resume = True
         ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, env_cfg=env_cfg, name=args.task, args=args, train_cfg=train_cfg)
-        policy = ppo_runner.get_inference_policy(device=env.device)
+        policy_device = torch.device(args.rl_device)
+        policy = ppo_runner.get_inference_policy(device=policy_device)
     
     logger = Logger(env.dt)
     num_steps = args.play_steps if args.play_steps is not None else 10 * int(env.max_episode_length)
     for i in range(num_steps):
 
         result = env.gym.fetch_results(env.sim, True)
-        actions = policy(obs.detach())
-        obs, _, rews, dones, infos = env.step(actions.detach())
+        actions = policy(obs.detach().to(policy_device))
+        obs, _, rews, dones, infos = env.step(actions.detach().to(env.device))
+        if args.play_log_getup_metrics and i % max(args.play_log_interval, 1) == 0:
+            log_getup_metrics(env, actions.detach().to(env.device), i)
         if args.play_asset_debug:
             dof_delta = (env.dof_pos - debug_initial_dof_pos).abs().max().item()
             debug_max_abs_dof_delta = max(debug_max_abs_dof_delta, dof_delta)

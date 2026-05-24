@@ -60,8 +60,22 @@ class T800HostConfigTest(unittest.TestCase):
         self.assertEqual(T800Cfg.env.num_actions, 23)
         self.assertEqual(T800Cfg.env.num_dofs, 23)
         self.assertEqual(T800Cfg.env.num_one_step_observations, 76)
+        self.assertEqual(T800Cfg.env.num_actor_history, 6)
         self.assertEqual(T800Cfg.env.num_observations, 456)
+        self.assertEqual(
+            T800Cfg.env.num_observations,
+            T800Cfg.env.num_actor_history * T800Cfg.env.num_one_step_observations,
+        )
         self.assertEqual(T800CfgPPO.runner.experiment_name, "t800_host_ground")
+
+    def test_t800_getup_deployment_observation_history_contract(self):
+        step_dim = T800Cfg.env.num_one_step_observations
+        history = T800Cfg.env.num_actor_history
+        self.assertEqual(step_dim, 3 + 3 + T800Cfg.env.num_actions * 3 + 1)
+        self.assertEqual(history, 6)
+        self.assertEqual([(i * step_dim, (i + 1) * step_dim) for i in range(history)][-1], (380, 456))
+        self.assertAlmostEqual(T800Cfg.curriculum.action_rescale_min, 0.6)
+        self.assertAlmostEqual(T800Cfg.normalization.clip_observations, 100.0)
 
     def test_t800_head_joints_stay_movable_but_uncontrolled(self):
         movable_joints = _movable_urdf_joints()
@@ -87,6 +101,23 @@ class T800HostConfigTest(unittest.TestCase):
         self.assertEqual(set(T800Cfg.init_state.default_joint_angles), set(movable_joints))
         self.assertEqual(set(T800Cfg.init_state.target_joint_angles), set(movable_joints))
 
+    def test_t800_target_pose_uses_staggered_stance(self):
+        expected_staggered_targets = {
+            "J00_HIP_PITCH_L": 0.30,
+            "J04_ANKLE_PITCH_L": -0.30,
+            "J06_HIP_PITCH_R": -0.30,
+            "J10_ANKLE_PITCH_R": 0.30,
+            "J13_SHOULDER_PITCH_L": -0.60,
+            "J20_SHOULDER_PITCH_R": 0.60,
+        }
+        for joint_name, target_angle in expected_staggered_targets.items():
+            self.assertAlmostEqual(T800_TARGET_JOINT_ANGLES[joint_name], target_angle)
+            self.assertAlmostEqual(T800Cfg.init_state.target_joint_angles[joint_name], target_angle)
+            self.assertNotEqual(
+                T800_DEFAULT_JOINT_ANGLES[joint_name],
+                T800_TARGET_JOINT_ANGLES[joint_name],
+            )
+
     def test_t800_uses_generated_stl_asset_like_engineai_gym_reference(self):
         asset_path = _asset_path()
         self.assertIn("t800_stl", str(asset_path))
@@ -108,30 +139,69 @@ class T800HostConfigTest(unittest.TestCase):
         self.assertEqual(ordered_scale[17], 0.05)
         self.assertEqual(ordered_scale[-1], 0.05)
 
+    def test_t800_getup_deployment_output_contract_is_current_q_relative(self):
+        q_real = [0.01 * idx for idx in range(T800Cfg.env.num_actions)]
+        raw_action = [0.1 if idx % 2 == 0 else -0.1 for idx in range(T800Cfg.env.num_actions)]
+        action_rescale = T800Cfg.curriculum.action_rescale_min
+        ordered_scale = [T800Cfg.control.action_scale[name] for name in T800_CONTROLLED_JOINT_NAMES]
+        q_des = [
+            q + action * action_rescale * scale
+            for q, action, scale in zip(q_real, raw_action, ordered_scale)
+        ]
+
+        self.assertAlmostEqual(q_des[0], q_real[0] + 0.1 * 0.6 * 0.5)
+        self.assertAlmostEqual(q_des[1], q_real[1] - 0.1 * 0.6 * 0.2)
+        self.assertNotEqual(q_des[0], T800_DEFAULT_JOINT_ANGLES[T800_CONTROLLED_JOINT_NAMES[0]])
+
+    def test_t800_getup_engineai_deploy_joint_mapping(self):
+        engineai_joint_names = T800_CONTROLLED_JOINT_NAMES[:18] + [
+            "J18_SHOULDER_PITCH_R",
+            "J19_SHOULDER_ROLL_R",
+            "J20_SHOULDER_YAW_R",
+            "J21_ELBOW_PITCH_R",
+            "J22_ELBOW_YAW_R",
+        ]
+        self.assertEqual(len(engineai_joint_names), T800Cfg.env.num_actions)
+        self.assertEqual(len(set(engineai_joint_names)), T800Cfg.env.num_actions)
+        self.assertEqual(T800_CONTROLLED_JOINT_NAMES[18:], [
+            "J20_SHOULDER_PITCH_R",
+            "J21_SHOULDER_ROLL_R",
+            "J22_SHOULDER_YAW_R",
+            "J23_ELBOW_PITCH_R",
+            "J24_ELBOW_YAW_R",
+        ])
+        self.assertEqual(engineai_joint_names[18:], [
+            "J18_SHOULDER_PITCH_R",
+            "J19_SHOULDER_ROLL_R",
+            "J20_SHOULDER_YAW_R",
+            "J21_ELBOW_PITCH_R",
+            "J22_ELBOW_YAW_R",
+        ])
+
     def test_t800_pd_gains_match_current_getup_tuning(self):
         expected_stiffness = {
-            "HIP_PITCH": 450,
-            "HIP_ROLL": 420,
-            "HIP_YAW": 360,
-            "KNEE_PITCH": 450,
-            "ANKLE": 160,
-            "TORSO_YAW": 260,
-            "SHOULDER": 220,
-            "ELBOW_PITCH": 180,
-            "ELBOW_YAW": 140,
-            "HEAD": 80,
+            "HIP_PITCH": 810,
+            "HIP_ROLL": 756,
+            "HIP_YAW": 648,
+            "KNEE_PITCH": 810,
+            "ANKLE": 288,
+            "TORSO_YAW": 468,
+            "SHOULDER": 396,
+            "ELBOW_PITCH": 324,
+            "ELBOW_YAW": 252,
+            "HEAD": 144,
         }
         expected_damping = {
-            "HIP_PITCH": 7,
-            "HIP_ROLL": 6,
-            "HIP_YAW": 5,
-            "KNEE_PITCH": 7,
-            "ANKLE": 3,
-            "TORSO_YAW": 5,
-            "SHOULDER": 3,
-            "ELBOW_PITCH": 3,
-            "ELBOW_YAW": 2,
-            "HEAD": 1,
+            "HIP_PITCH": 9.4,
+            "HIP_ROLL": 8.0,
+            "HIP_YAW": 6.7,
+            "KNEE_PITCH": 9.4,
+            "ANKLE": 4.0,
+            "TORSO_YAW": 6.7,
+            "SHOULDER": 4.0,
+            "ELBOW_PITCH": 4.0,
+            "ELBOW_YAW": 2.7,
+            "HEAD": 1.3,
         }
         self.assertEqual(T800Cfg.control.stiffness, expected_stiffness)
         self.assertEqual(T800Cfg.control.damping, expected_damping)
@@ -215,8 +285,9 @@ class T800HostConfigTest(unittest.TestCase):
         self.assertAlmostEqual(T800_STANDING_HEAD_HEIGHT, 1.567)
 
         self.assertTrue(T800Cfg.curriculum.pull_force)
-        self.assertEqual(T800Cfg.curriculum.force, 1000)
+        self.assertEqual(T800Cfg.curriculum.force, 500)
         self.assertAlmostEqual(T800Cfg.curriculum.threshold_height, 1.42)
+        self.assertAlmostEqual(T800Cfg.curriculum.action_rescale_min, 0.6)
         self.assertTrue(T800Cfg.curriculum.no_orientation)
         self.assertEqual(T800Cfg.curriculum.dof_vel_limit, 300)
         self.assertEqual(T800Cfg.curriculum.base_vel_limit, 20)

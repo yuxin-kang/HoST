@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=host-t800-30k-3090
-#SBATCH --partition=rtx3090
-#SBATCH --gres=gpu:rtx3090:1
+#SBATCH --job-name=host-t800-stagger
+#SBATCH --partition=rtx4090
+#SBATCH --gres=gpu:rtx4090d:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=7-00:00:00
@@ -27,15 +27,17 @@ echo "job_id=${SLURM_JOB_ID}"
 echo "node=$(hostname)"
 echo "cuda_visible_devices=${CUDA_VISIBLE_DEVICES:-unset}"
 echo "task=t800_host_ground"
+echo "run_name=slurm_4090_stagger_getup_4096env_30000it"
 echo "num_envs=4096"
 echo "max_iterations=30000"
-echo "gpu_request=rtx3090:1"
+echo "gpu_request=rtx4090d:1"
 nvidia-smi
 python -u -c 'import isaacgym; import torch; print("torch", torch.__version__, "cuda", torch.version.cuda, "available", torch.cuda.is_available())'
+python -u -c 'import isaacgym; from legged_gym.envs.t800.t800_config_ground import T800_TARGET_JOINT_ANGLES as T; keys = ["J00_HIP_PITCH_L", "J04_ANKLE_PITCH_L", "J06_HIP_PITCH_R", "J10_ANKLE_PITCH_R", "J13_SHOULDER_PITCH_L", "J20_SHOULDER_PITCH_R"]; print("target_pose", {key: T[key] for key in keys})'
 
 python legged_gym/legged_gym/scripts/train.py \
   --task t800_host_ground \
-  --run_name slurm_3090_getup_4096env_30000it \
+  --run_name slurm_4090_stagger_getup_4096env_30000it \
   --headless \
   --num_envs 4096 \
   --max_iterations 30000

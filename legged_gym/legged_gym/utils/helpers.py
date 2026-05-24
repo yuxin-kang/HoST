@@ -142,6 +142,8 @@ def get_args():
         {"name": "--play_action_scale", "type": float, "help": "For play.py, override the control action scale."},
         {"name": "--play_asset_debug", "action": "store_true", "default": False, "help": "For play.py, render the asset with zero actions and no checkpoint loading."},
         {"name": "--play_steps", "type": int, "help": "For play.py, run a fixed number of simulation steps."},
+        {"name": "--play_log_getup_metrics", "action": "store_true", "default": False, "help": "For play.py, print get-up diagnostic metrics while running."},
+        {"name": "--play_log_interval", "type": int, "default": 20, "help": "For play.py diagnostics, print every N simulation steps."},
     ]
     # parse arguments
     args = gymutil.parse_arguments(

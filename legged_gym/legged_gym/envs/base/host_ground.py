@@ -549,7 +549,8 @@ class LeggedRobot(BaseTask):
     def update_force_curriculum(self, env_ids):
         if torch.mean(self.old_headheight[env_ids]) > self.cfg.curriculum.threshold_height:
             self.force[env_ids] = (self.force[env_ids] - 20).clamp(0, np.inf)
-            self.action_rescale[env_ids] = (self.action_rescale[env_ids] - 0.02).clamp(0.25, np.inf)
+            action_rescale_min = getattr(self.cfg.curriculum, "action_rescale_min", 0.25)
+            self.action_rescale[env_ids] = (self.action_rescale[env_ids] - 0.02).clamp(action_rescale_min, np.inf)
 
     def _get_noise_scale_vec(self, cfg):
         """ Sets a vector used to scale the noise added to the observations.
