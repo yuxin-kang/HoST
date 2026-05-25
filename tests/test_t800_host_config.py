@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import isaacgym  # noqa: F401
+import torch
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 import legged_gym.envs  # noqa: F401
@@ -21,6 +22,7 @@ from legged_gym.envs.t800.t800_config_ground import (
     T800_FIXED_JOINT_NAMES,
     T800_GETUP_ROOT_ROT,
     T800_HEAD_JOINT_NAMES,
+    T800_PRONE_ROOT_ROT,
     T800_STANDING_HEAD_HEIGHT,
     T800_STANDING_ROOT_HEIGHT,
     T800_TARGET_JOINT_ANGLES,
@@ -275,10 +277,70 @@ class T800HostConfigTest(unittest.TestCase):
 
     def test_t800_reset_pose_uses_getup_initialization(self):
         self.assertEqual(T800_GETUP_ROOT_ROT, [0.0, -1.0, 0.0, 1.0])
+        self.assertEqual(T800_PRONE_ROOT_ROT, [0.0, 1.0, 0.0, 1.0])
         self.assertEqual(T800Cfg.init_state.pos, [0.0, 0.0, 0.5])
         self.assertEqual(T800Cfg.init_state.rot, T800_GETUP_ROOT_ROT)
+        self.assertEqual(T800Cfg.init_state.alternate_rot, T800_PRONE_ROOT_ROT)
+        self.assertAlmostEqual(T800Cfg.init_state.alternate_rot_fraction, 0.5)
         self.assertLess(T800Cfg.init_state.pos[2], T800_STANDING_ROOT_HEIGHT)
         self.assertGreater(T800_STANDING_ROOT_HEIGHT, 1.018)
+
+    def test_t800_root_orientation_mix_is_exact_and_env_id_stable(self):
+        env_ids = torch.arange(4096, dtype=torch.long)
+        alternate_mask = host_ground._get_alternate_root_rot_mask(env_ids, 4096, 0.5)
+        self.assertEqual(int(alternate_mask.sum().item()), 2048)
+        self.assertTrue(torch.all(~alternate_mask[:2048]))
+        self.assertTrue(torch.all(alternate_mask[2048:]))
+
+        reset_subset = torch.tensor([4095, 0, 2048, 2047, 3000], dtype=torch.long)
+        subset_mask = host_ground._get_alternate_root_rot_mask(reset_subset, 4096, 0.5)
+        self.assertEqual(subset_mask.tolist(), [True, False, True, False, True])
+
+        selected_rotations = host_ground._select_initial_root_rotations(
+            env_ids=reset_subset,
+            num_envs=4096,
+            default_rot=T800_GETUP_ROOT_ROT,
+            alternate_rot=T800_PRONE_ROOT_ROT,
+            alternate_rot_fraction=0.5,
+        )
+        self.assertEqual(selected_rotations[0].tolist(), T800_PRONE_ROOT_ROT)
+        self.assertEqual(selected_rotations[1].tolist(), T800_GETUP_ROOT_ROT)
+        self.assertEqual(selected_rotations[2].tolist(), T800_PRONE_ROOT_ROT)
+        self.assertEqual(selected_rotations[3].tolist(), T800_GETUP_ROOT_ROT)
+        self.assertEqual(selected_rotations[4].tolist(), T800_PRONE_ROOT_ROT)
+
+    def test_root_orientation_mix_defaults_to_base_rotation_without_alternate_fields(self):
+        env_ids = torch.tensor([0, 2, 7], dtype=torch.long)
+        selected_rotations = host_ground._select_initial_root_rotations(
+            env_ids=env_ids,
+            num_envs=8,
+            default_rot=T800_GETUP_ROOT_ROT,
+            alternate_rot=None,
+            alternate_rot_fraction=0.0,
+        )
+        expected = torch.tensor([T800_GETUP_ROOT_ROT] * len(env_ids), dtype=selected_rotations.dtype)
+        self.assertTrue(torch.equal(selected_rotations, expected))
+
+    def test_root_orientation_mix_rejects_invalid_alternate_config(self):
+        env_ids = torch.tensor([0, 1], dtype=torch.long)
+        with self.assertRaisesRegex(ValueError, "alternate_rot_fraction"):
+            host_ground._get_alternate_root_rot_mask(env_ids, 8, 1.1)
+        with self.assertRaisesRegex(ValueError, "alternate_rot_fraction"):
+            host_ground._select_initial_root_rotations(
+                env_ids=env_ids,
+                num_envs=8,
+                default_rot=T800_GETUP_ROOT_ROT,
+                alternate_rot=T800_PRONE_ROOT_ROT,
+                alternate_rot_fraction=-0.1,
+            )
+        with self.assertRaisesRegex(ValueError, "alternate_rot must contain exactly four elements"):
+            host_ground._select_initial_root_rotations(
+                env_ids=env_ids,
+                num_envs=8,
+                default_rot=T800_GETUP_ROOT_ROT,
+                alternate_rot=[0.0, 1.0, 0.0],
+                alternate_rot_fraction=0.5,
+            )
 
     def test_t800_getup_curriculum_rewards_and_regularization_are_locked(self):
         self.assertAlmostEqual(T800_STANDING_ROOT_HEIGHT, 1.037)

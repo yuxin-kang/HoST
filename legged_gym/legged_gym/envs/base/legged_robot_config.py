@@ -51,6 +51,8 @@ class LeggedRobotCfg(BaseConfig):
     class init_state:
         pos = [0.0, 0.0, 1.] # x,y,z [m]
         rot = [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat]
+        alternate_rot = None
+        alternate_rot_fraction = 0.0
         lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
         ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
         default_joint_angles = { # target angles when action = 0.0

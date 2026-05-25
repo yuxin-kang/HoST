@@ -57,6 +57,55 @@ def _select_ankle_marker_names(body_names, target_names):
     return auxiliary_names if auxiliary_names else matched_names
 
 
+def _get_alternate_root_rot_mask(env_ids, num_envs, alternate_rot_fraction):
+    alternate_rot_fraction = float(alternate_rot_fraction)
+    if not 0.0 <= alternate_rot_fraction <= 1.0:
+        raise ValueError(
+            f"alternate_rot_fraction must be within [0, 1], got {alternate_rot_fraction}"
+        )
+    if env_ids.numel() == 0 or alternate_rot_fraction == 0.0:
+        return torch.zeros_like(env_ids, dtype=torch.bool)
+    num_alternate = int(num_envs * alternate_rot_fraction)
+    if num_alternate == 0:
+        return torch.zeros_like(env_ids, dtype=torch.bool)
+    first_alternate_env_id = num_envs - num_alternate
+    return env_ids >= first_alternate_env_id
+
+
+def _as_root_rot_tensor(rot, device, dtype, field_name):
+    rot_tensor = torch.as_tensor(rot, device=device, dtype=dtype)
+    if rot_tensor.numel() != 4:
+        raise ValueError(f"{field_name} must contain exactly four elements, got {rot_tensor.numel()}")
+    return rot_tensor.view(1, 4)
+
+
+def _select_initial_root_rotations(
+    env_ids,
+    num_envs,
+    default_rot,
+    alternate_rot=None,
+    alternate_rot_fraction=0.0,
+    device=None,
+    dtype=torch.float,
+):
+    default_rot_tensor = _as_root_rot_tensor(default_rot, device, dtype, "default_rot")
+    selected_rotations = default_rot_tensor.repeat(len(env_ids), 1)
+    alternate_rot_tensor = None
+    if alternate_rot is not None:
+        alternate_rot_tensor = _as_root_rot_tensor(alternate_rot, device, dtype, "alternate_rot")
+    alternate_rot_fraction = float(alternate_rot_fraction)
+    _get_alternate_root_rot_mask(env_ids, num_envs, alternate_rot_fraction)
+    if alternate_rot_fraction <= 0.0:
+        return selected_rotations
+
+    alternate_mask = _get_alternate_root_rot_mask(env_ids, num_envs, alternate_rot_fraction)
+    if alternate_rot_tensor is None:
+        raise ValueError("alternate_rot must be provided when alternate_rot_fraction selects alternate environments")
+
+    selected_rotations[alternate_mask] = alternate_rot_tensor
+    return selected_rotations
+
+
 class LeggedRobot(BaseTask):
     def __init__(self, cfg: LeggedRobotCfg, sim_params, physics_engine, sim_device, headless):
         """ Parses the provided config file,
@@ -540,6 +589,16 @@ class LeggedRobot(BaseTask):
         else:
             self.root_states[env_ids] = self.base_init_state
             self.root_states[env_ids, :3] += self.env_origins[env_ids]
+
+        self.root_states[env_ids, 3:7] = _select_initial_root_rotations(
+            env_ids=env_ids,
+            num_envs=self.num_envs,
+            default_rot=self.base_init_state[3:7],
+            alternate_rot=getattr(self.cfg.init_state, "alternate_rot", None),
+            alternate_rot_fraction=getattr(self.cfg.init_state, "alternate_rot_fraction", 0.0),
+            device=self.device,
+            dtype=self.root_states.dtype,
+        )
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
         self.gym.set_actor_root_state_tensor_indexed(self.sim,

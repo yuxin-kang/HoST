@@ -184,6 +184,7 @@ tensorboard/
 *.out
 *.err
 events.out.tfevents.*
+slurm/*.sbatch
 
 # Training checkpoints and exported policies
 *.pt

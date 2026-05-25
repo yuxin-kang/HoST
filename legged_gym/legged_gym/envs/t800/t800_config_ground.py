@@ -4,6 +4,7 @@ from legged_gym.envs.h1.h1_config_ground import H1Cfg, H1CfgPPO
 T800_SOURCE_URDF = "{LEGGED_GYM_ROOT_DIR}/resources/robots/t800/urdf/serial_t800.urdf"
 T800_URDF = "{LEGGED_GYM_ROOT_DIR}/resources/robots/t800_stl/urdf/serial_t800_stl.urdf"
 T800_GETUP_ROOT_ROT = [0.0, -1.0, 0.0, 1.0]
+T800_PRONE_ROOT_ROT = [0.0, 1.0, 0.0, 1.0]
 T800_STANDING_ROOT_HEIGHT = 1.037
 T800_STANDING_HEAD_HEIGHT = 1.567
 
@@ -169,6 +170,8 @@ class T800Cfg(H1Cfg):
     class init_state(H1Cfg.init_state):
         pos = [0.0, 0.0, 0.5]
         rot = T800_GETUP_ROOT_ROT
+        alternate_rot = T800_PRONE_ROOT_ROT
+        alternate_rot_fraction = 0.5
         target_joint_angles = T800_TARGET_JOINT_ANGLES
         default_joint_angles = T800_DEFAULT_JOINT_ANGLES
 
